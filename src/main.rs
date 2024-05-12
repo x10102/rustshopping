@@ -1,9 +1,12 @@
-use std::process;
-use std::io::stdin;
+use std::{error::Error, process};
+use std::io::{stdin, stdout, BufReader, BufWriter, Write};
+use std::path::Path;
+use std::fs::File;
 use inline_colorization::*;
 use clearscreen;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ListItem {
     name: String,
     count: u16,
@@ -16,6 +19,25 @@ impl ListItem {
             name=self.name, 
             count=self.count, 
             status=if self.bought {format!("{color_green}BOUGHT")} else {format!("{color_yellow}NOT BOUGHT")})
+    }
+}
+
+fn export_json(filename: String, list: &Vec<ListItem>) -> Result<(), Box<dyn Error>> {
+    let file_path = Path::new(&filename);
+    {
+        let file = File::create(file_path)?;
+        let writer = BufWriter::new(file);
+        serde_json::to_writer(writer, list)?;
+    }
+    Ok(())
+}
+
+fn import_json(filename: String) -> Result<Vec<ListItem>, Box<dyn Error>> {
+    let file_path = Path::new(&filename);
+    {
+        let file = File::open(file_path)?;
+        let file_reader = BufReader::new(file);
+        Ok(serde_json::from_reader(file_reader)?)
     }
 }
 
@@ -62,6 +84,20 @@ fn cli_action(args: Vec<&str>, list: &mut Vec<ListItem>) {
 
         ["clear"] => clearscreen::clear().unwrap(), // Just crash if we can't clear the screen i guess lol
 
+        ["export", filename] => {
+            match export_json(filename.to_owned(), &list) {
+                Ok(()) => println!("{color_yellow}List has been exported to {filename}{color_reset}"),
+                Err(e) => println!("{color_red}Export failed: {e}{color_reset}")
+            }
+        },
+
+        ["import", filename] => {
+            match import_json(filename.to_owned()) {
+                Ok(imported) => *list = imported,
+                Err(e) => println!("{color_red}Import failed: {e}{color_reset}")
+            }
+        }
+
         ["exit", ..] => process::exit(0),
 
         _ => println!("{color_red}Invalid command{color_reset}")
@@ -84,7 +120,9 @@ fn main() -> ! { // main doesn't return since we exit from cli_action
     let mut args_buffer: Vec<&str>;
     loop {
         console_buffer.clear();
-        stdin().read_line(&mut console_buffer).expect("Couldn't read input from console");
+        print!("> ");
+        stdout().flush().expect("I/O Error"); // Write the prompt to console
+        stdin().read_line(&mut console_buffer).expect("I/O Error");
         args_buffer = console_buffer.split_whitespace().collect();  // Split on spaces and collect the iterator into a vector
         cli_action(args_buffer, &mut the_list); // "dispatch" the command
         print_list(&the_list);
